@@ -1,0 +1,4 @@
+@import "tailwindcss";
+
+/* 红十字主题色：主红 + 米白。页面直接用 Tailwind 的 red-700/red-50 等，
+   需要统一的品牌色时在这里扩展 @theme。 */
