@@ -32,7 +32,7 @@ router = APIRouter(prefix="/activities", tags=["signups"])
 class SignupRequest(BaseModel):
     name: str = Field(min_length=2, max_length=50)
     student_id: str = Field(min_length=6, max_length=20, pattern=r"^[0-9A-Za-z]+$")
-    college: str = Field(min_length=2, max_length=100)
+    college: str = Field(default="", max_length=100)  # 2026-11 起前端不收集，留空即可
     phone: str = Field(min_length=11, max_length=11, pattern=r"^1[0-9]{10}$")
     shift_ids: list[int] = Field(min_length=1)
 

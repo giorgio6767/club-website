@@ -26,7 +26,6 @@ export type ActivitySummary = Omit<Activity, "shifts">;
 export type SignupPayload = {
   name: string;
   student_id: string;
-  college: string;
   phone: string;
   shift_ids: number[];
 };
@@ -39,8 +38,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   const body = await resp.json().catch(() => ({}));
   if (!resp.ok) {
-    const detail = (body as { detail?: string }).detail ?? `请求失败（${resp.status}）`;
-    throw new Error(detail);
+    // detail 可能是字符串（业务错误）或数组（pydantic 校验错误）
+    const raw = (body as { detail?: unknown }).detail;
+    let msg = `请求失败（${resp.status}）`;
+    if (typeof raw === "string") msg = raw;
+    else if (Array.isArray(raw)) msg = raw.map((d) => (d as { msg?: string }).msg).join("；");
+    throw new Error(msg);
   }
   return body as T;
 }

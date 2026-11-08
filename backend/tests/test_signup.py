@@ -42,7 +42,7 @@ def signup(client, activity_id, shift_ids, **kw):
     payload = {
         "name": kw.get("name", "张三"),
         "student_id": kw.get("student_id", "20230101"),
-        "college": kw.get("college", "材料学院"),
+        "college": kw.get("college", "材料学院"),  # 可选字段，可传 ""
         "phone": kw.get("phone", "13800000001"),
         "shift_ids": shift_ids,
     }
@@ -69,6 +69,18 @@ def test_signup_success_and_auto_member(client, admin_headers):
     assert len(all_signups) == 2
     assert all_signups[0]["student_id"] == "20230101"
     assert all_signups[0]["college"] == "材料学院"
+
+
+def test_signup_without_college(client, admin_headers):
+    """前端已不收集学院，不带 college 字段也应成功。"""
+    activity = make_activity(client, admin_headers, shifts=[
+        {"post_name": "引导岗", "start_time": "2026-11-16T09:00:00",
+         "end_time": "2026-11-16T12:00:00", "capacity": 2},
+    ])
+    payload = {"name": "李四", "student_id": "20230999",
+               "phone": "13900000999", "shift_ids": [activity["shifts"][0]["id"]]}
+    resp = client.post(f"/api/activities/{activity['id']}/signups", json=payload)
+    assert resp.status_code == 200, resp.text
 
 
 def test_capacity_full_409(client, admin_headers):

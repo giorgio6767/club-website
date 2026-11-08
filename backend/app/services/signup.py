@@ -28,8 +28,11 @@ def get_or_create_member(
         db.add(member)
         db.flush()  # 拿到 member.id
     else:
-        # 信息以最新一次报名为准（换手机号/搬学院是真实会发生的事）
-        member.name, member.college, member.phone = name, college, phone
+        # 信息以最新一次报名为准（换手机号/搬学院是真实会发生的事）；
+        # college 前端已不收集，传空时不覆盖旧值
+        member.name, member.phone = name, phone
+        if college:
+            member.college = college
     return member
 
 
