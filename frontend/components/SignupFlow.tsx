@@ -95,6 +95,29 @@ export default function SignupFlow({ activity: initial }: { activity: Activity }
     });
   };
 
+  /* 清空某分支的选择（取消勾选日期/时段时）：收起 + 清掉其下所有已选岗位 */
+  const clearSlot = (slot: SlotGroup) => {
+    setSelected((prev) => {
+      const set = new Set(prev);
+      for (const s of slot.shifts) set.delete(s.id);
+      return [...set];
+    });
+  };
+
+  const clearDay = (day: DayGroup) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.delete(`d:${day.key}`);
+      for (const slot of day.slots) next.delete(`s:${slot.key}`);
+      return next;
+    });
+    setSelected((prev) => {
+      const set = new Set(prev);
+      for (const slot of day.slots) for (const s of slot.shifts) set.delete(s.id);
+      return [...set];
+    });
+  };
+
   function submit() {
     const name = form.name.trim();
     const studentId = form.student_id.trim();
@@ -181,12 +204,13 @@ export default function SignupFlow({ activity: initial }: { activity: Activity }
             const dayPicked = day.slots
               .flatMap((s) => s.shifts)
               .filter((s) => selected.includes(s.id)).length;
+            const dChecked = dOpen || dayPicked > 0; // ✔=已展开 或 里面有已选岗位
             return (
               <div key={day.key} className="border-b border-gray-100 last:border-0">
-                {/* 日期行：勾选=展开时段 */}
+                {/* 日期行：勾选=展开；取消勾选=收起并清空该日期 */}
                 <Row
-                  checked={dOpen}
-                  onCheck={(on) => toggleDay(day, on)}
+                  checked={dChecked}
+                  onCheck={(on) => (on ? toggleDay(day, true) : clearDay(day))}
                   onRowClick={() => toggleDay(day, !dOpen)}
                   main={day.label}
                   badge={dayPicked > 0 ? `已选 ${dayPicked} 个岗位` : ""}
@@ -198,13 +222,14 @@ export default function SignupFlow({ activity: initial }: { activity: Activity }
                     {day.slots.map((slot) => {
                       const sOpen = expanded.has(`s:${slot.key}`);
                       const picked = slot.shifts.find((s) => selected.includes(s.id));
+                      const sChecked = sOpen || !!picked; // ✔=已展开 或 已选岗位
                       return (
                         <div key={slot.key} className="border-b border-gray-100/70 last:border-0">
-                          {/* 时段行：勾选=展开岗位 */}
+                          {/* 时段行：勾选=展开；取消勾选=收起并清空该时段 */}
                           <Row
                             size="sm"
-                            checked={sOpen}
-                            onCheck={(on) => toggleSlot(slot, on)}
+                            checked={sChecked}
+                            onCheck={(on) => (on ? toggleSlot(slot, true) : (toggleSlot(slot, false), clearSlot(slot)))}
                             onRowClick={() => toggleSlot(slot, !sOpen)}
                             main={slot.label}
                             badge={picked ? `已选：${picked.post_name}` : "未选岗位"}
@@ -251,8 +276,8 @@ export default function SignupFlow({ activity: initial }: { activity: Activity }
         </div>
 
         <p className="mt-2 px-1 text-xs text-gray-400">
-          勾选日期展开时段，勾选时段展开岗位；收起只是折叠，已选的岗位会保留。
-          想取消岗位，展开后取消勾选岗位本身即可（每个时段只能选一个）。
+          勾选日期展开时段，勾选时段展开岗位；点"收起"只折叠，✔ 和已选岗位都保留。
+          取消勾选日期/时段 = 收起并清空该分支；取消单个岗位就取消勾选它（每时段限一个）。
         </p>
       </section>
 
