@@ -63,7 +63,8 @@ export default function SignupFlow({ activity: initial }: { activity: Activity }
   const tree = useMemo(() => buildTree(activity.shifts), [activity]);
   const location = activity.shifts[0]?.location ?? "";
 
-  /* 展开状态切换：勾选=展开，取消=收起并清空其下选择 */
+  /* 展开状态切换：勾选=展开，取消/收起=只折叠视觉，已选岗位保留。
+     取消岗位只能通过取消勾选岗位本身。 */
   const setExpandedKey = (key: string, on: boolean) =>
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -75,30 +76,11 @@ export default function SignupFlow({ activity: initial }: { activity: Activity }
   const toggleDay = (day: DayGroup, on: boolean) => {
     setSubmitError(null);
     setExpandedKey(`d:${day.key}`, on);
-    if (!on) {
-      setExpanded((prev) => {
-        const next = new Set(prev);
-        for (const slot of day.slots) next.delete(`s:${slot.key}`);
-        return next;
-      });
-      setSelected((prev) => {
-        const set = new Set(prev);
-        for (const slot of day.slots) for (const s of slot.shifts) set.delete(s.id);
-        return [...set];
-      });
-    }
   };
 
   const toggleSlot = (slot: SlotGroup, on: boolean) => {
     setSubmitError(null);
     setExpandedKey(`s:${slot.key}`, on);
-    if (!on) {
-      setSelected((prev) => {
-        const set = new Set(prev);
-        for (const s of slot.shifts) set.delete(s.id);
-        return [...set];
-      });
-    }
   };
 
   /* 岗位：同时段内单选 */
@@ -269,8 +251,8 @@ export default function SignupFlow({ activity: initial }: { activity: Activity }
         </div>
 
         <p className="mt-2 px-1 text-xs text-gray-400">
-          勾选日期展开时段，勾选时段展开岗位；岗位才是最终选择，每个时段只能选一个岗位。
-          取消勾选日期/时段会同时清空其下选择。
+          勾选日期展开时段，勾选时段展开岗位；收起只是折叠，已选的岗位会保留。
+          想取消岗位，展开后取消勾选岗位本身即可（每个时段只能选一个）。
         </p>
       </section>
 
