@@ -1,10 +1,11 @@
 "use client";
 
-/* 单页报名流程（2026-11 口径）：
-   信息收集（姓名/学号/联系方式）在最上 → 地点→日期→时段→岗位 四级复选树 → 底部提交。
-   由首页（单一开放活动时自动直入）与 /activities/[id] 共用。 */
+/* 单页报名流程（2026-11 口径 v2）：
+   信息收集（姓名/学号/联系方式）在最上 → 地点→日期→时段→岗位 钻取式选择 → 底部提交。
+   勾选日期/时段 = 展开下一级供继续选择（同时收起并清空其下选择）；岗位是唯一的选择层，
+   同一时段内单选（时间相同即冲突）。 */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   api,
   fmtShiftTime,
@@ -33,8 +34,8 @@ function buildTree(shifts: Shift[]): DayGroup[] {
   return [...days.entries()].map(([dayKey, slotMap]) => ({
     key: dayKey,
     label: (() => {
-      const d = new Date(dayMapKeyToDate(dayKey));
-      return `${d.getMonth() + 1}月${d.getDate()}日`;
+      const [y, m, d] = dayKey.split("-").map(Number);
+      return `${m + 1}月${d}日`;
     })(),
     slots: [...slotMap.entries()].map(([slotKey, list]) => ({
       key: slotKey,
@@ -44,42 +45,8 @@ function buildTree(shifts: Shift[]): DayGroup[] {
   }));
 }
 
-function dayMapKeyToDate(key: string): Date {
-  const [y, m, d] = key.split("-").map(Number);
-  return new Date(y, m, d);
-}
-
 function p(n: number) {
   return String(n).padStart(2, "0");
-}
-
-/* ---------- 三态复选框 ---------- */
-
-function Check({
-  state,
-  onChange,
-  disabled,
-  size = "base",
-}: {
-  state: "all" | "some" | "none";
-  onChange: () => void;
-  disabled?: boolean;
-  size?: "base" | "sm";
-}) {
-  const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (ref.current) ref.current.indeterminate = state === "some";
-  }, [state]);
-  return (
-    <input
-      ref={ref}
-      type="checkbox"
-      checked={state === "all"}
-      onChange={onChange}
-      disabled={disabled}
-      className={`flex-none accent-red-700 ${size === "sm" ? "h-4 w-4" : "h-[18px] w-[18px]"}`}
-    />
-  );
 }
 
 /* ---------- 主组件 ---------- */
@@ -96,63 +63,45 @@ export default function SignupFlow({ activity: initial }: { activity: Activity }
   const tree = useMemo(() => buildTree(activity.shifts), [activity]);
   const location = activity.shifts[0]?.location ?? "";
 
-  // 默认展开第一天和它的第一个时段，避免白屏感
-  useEffect(() => {
-    if (tree.length > 0) {
-      const first = new Set<string>([`d:${tree[0].key}`]);
-      if (tree[0].slots.length > 0) first.add(`s:${tree[0].slots[0].key}`);
-      setExpanded(first);
-    }
-  }, [tree]);
-
-  const toggleExpand = (key: string) =>
+  /* 展开状态切换：勾选=展开，取消=收起并清空其下选择 */
+  const setExpandedKey = (key: string, on: boolean) =>
     setExpanded((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      if (on) next.add(key);
+      else next.delete(key);
       return next;
     });
 
-  const leafState = (shifts: Shift[]): "all" | "some" | "none" => {
-    const selectable = shifts.filter((s) => !shiftState(s).full);
-    const picked = selectable.filter((s) => selected.includes(s.id)).length;
-    if (selectable.length > 0 && picked === selectable.length) return "all";
-    if (picked > 0) return "some";
-    return "none";
+  const toggleDay = (day: DayGroup, on: boolean) => {
+    setSubmitError(null);
+    setExpandedKey(`d:${day.key}`, on);
+    if (!on) {
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        for (const slot of day.slots) next.delete(`s:${slot.key}`);
+        return next;
+      });
+      setSelected((prev) => {
+        const set = new Set(prev);
+        for (const slot of day.slots) for (const s of slot.shifts) set.delete(s.id);
+        return [...set];
+      });
+    }
   };
 
-  /* 选择语义：同一时段的岗位互斥（时间相同，报名系统也按冲突拒绝），
-     所以时段内是单选；勾时段/日期 = 每个时段自动选第一个有空位的岗位。 */
-  const firstAvailable = (shifts: Shift[]) => shifts.find((s) => !shiftState(s).full);
-
-  const setSlot = (slotShifts: Shift[], pick: boolean) => {
+  const toggleSlot = (slot: SlotGroup, on: boolean) => {
     setSubmitError(null);
-    setSelected((prev) => {
-      const set = new Set(prev);
-      for (const s of slotShifts) set.delete(s.id);
-      if (pick) {
-        const f = firstAvailable(slotShifts);
-        if (f) set.add(f.id);
-      }
-      return [...set];
-    });
-  };
-
-  const setDay = (day: DayGroup, pick: boolean) => {
-    setSubmitError(null);
-    setSelected((prev) => {
-      const set = new Set(prev);
-      for (const slot of day.slots) {
+    setExpandedKey(`s:${slot.key}`, on);
+    if (!on) {
+      setSelected((prev) => {
+        const set = new Set(prev);
         for (const s of slot.shifts) set.delete(s.id);
-        if (pick) {
-          const f = firstAvailable(slot.shifts);
-          if (f) set.add(f.id);
-        }
-      }
-      return [...set];
-    });
+        return [...set];
+      });
+    }
   };
 
+  /* 岗位：同时段内单选 */
   const pickLeaf = (slotShifts: Shift[], target: Shift) => {
     setSubmitError(null);
     setSelected((prev) => {
@@ -198,7 +147,7 @@ export default function SignupFlow({ activity: initial }: { activity: Activity }
           </div>
           <h1 className="mt-4 text-xl font-bold text-gray-900">报名成功</h1>
           <p className="mt-2 text-sm text-gray-500">
-            {form.name}，你已成功报名 {selected.length} 个场次。
+            {form.name.trim()}，你已成功报名 {selected.length} 个场次。
             <br />
             活动前请在 QQ 群留意集合通知。
           </p>
@@ -231,7 +180,7 @@ export default function SignupFlow({ activity: initial }: { activity: Activity }
                onChange={(v) => setForm({ ...form, phone: v })} />
       </section>
 
-      {/* 四级复选树：地点 → 日期 → 时段 → 岗位 */}
+      {/* 钻取式选择：地点 → 日期 → 时段 → 岗位 */}
       <section className="mt-6">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold text-gray-900">选择场次（可多选）</h2>
@@ -241,91 +190,87 @@ export default function SignupFlow({ activity: initial }: { activity: Activity }
         </div>
 
         <div className="mt-3 rounded-2xl bg-white shadow-sm">
-          {/* 地点层：单一地点作为树根展示 */}
           <div className="flex items-center gap-2 border-b border-gray-100 px-4 py-3">
             <span className="text-[15px] font-semibold text-gray-900">📍 {location}</span>
           </div>
 
           {tree.map((day) => {
-            const dayShifts = day.slots.flatMap((s) => s.shifts);
-            const dState = leafState(dayShifts);
             const dOpen = expanded.has(`d:${day.key}`);
+            const dayPicked = day.slots
+              .flatMap((s) => s.shifts)
+              .filter((s) => selected.includes(s.id)).length;
             return (
               <div key={day.key} className="border-b border-gray-100 last:border-0">
-                {/* 日期行 */}
-                <div className="flex items-center gap-3 px-4 py-3">
-                  <Check state={dState} onChange={() => setDay(day, dState !== "all")} />
-                  <button
-                    type="button"
-                    onClick={() => toggleExpand(`d:${day.key}`)}
-                    className="flex flex-1 items-center justify-between text-left"
-                  >
-                    <span className="text-[15px] font-semibold text-gray-900">{day.label}</span>
-                    <span className="text-[13px] text-gray-400">
-                      {dOpen ? "收起 ▲" : `展开 ${day.slots.length} 个时段 ▼`}
-                    </span>
-                  </button>
-                </div>
+                {/* 日期行：勾选=展开时段 */}
+                <Row
+                  checked={dOpen}
+                  onCheck={(on) => toggleDay(day, on)}
+                  onRowClick={() => toggleDay(day, !dOpen)}
+                  main={day.label}
+                  badge={dayPicked > 0 ? `已选 ${dayPicked} 个岗位` : ""}
+                  tail={dOpen ? "收起 ▲" : "展开 ▼"}
+                />
 
-                {dOpen &&
-                  day.slots.map((slot) => {
-                    const sState = leafState(slot.shifts);
-                    const sOpen = expanded.has(`s:${slot.key}`);
-                    return (
-                      <div key={slot.key} className="border-t border-gray-50 bg-gray-50/60">
-                        {/* 时段行 */}
-                        <div className="flex items-center gap-3 px-4 py-2.5 pl-8">
-                          <Check size="sm" state={sState}
-                                 onChange={() => setSlot(slot.shifts, sState === "none")} />
-                          <button
-                            type="button"
-                            onClick={() => toggleExpand(`s:${slot.key}`)}
-                            className="flex flex-1 items-center justify-between text-left"
-                          >
-                            <span className="text-[14px] font-medium text-gray-800">{slot.label}</span>
-                            <span className="text-xs text-gray-400">{sOpen ? "收起 ▲" : "岗位 ▼"}</span>
-                          </button>
+                {dOpen && (
+                  <div className="border-t border-gray-50 bg-gray-50/60">
+                    {day.slots.map((slot) => {
+                      const sOpen = expanded.has(`s:${slot.key}`);
+                      const picked = slot.shifts.find((s) => selected.includes(s.id));
+                      return (
+                        <div key={slot.key} className="border-b border-gray-100/70 last:border-0">
+                          {/* 时段行：勾选=展开岗位 */}
+                          <Row
+                            size="sm"
+                            checked={sOpen}
+                            onCheck={(on) => toggleSlot(slot, on)}
+                            onRowClick={() => toggleSlot(slot, !sOpen)}
+                            main={slot.label}
+                            badge={picked ? `已选：${picked.post_name}` : "未选岗位"}
+                            tail={sOpen ? "收起 ▲" : "岗位 ▼"}
+                            indent
+                          />
+
+                          {sOpen && (
+                            <div className="pb-2 pl-12 pr-4">
+                              {slot.shifts.map((s) => {
+                                const { full } = shiftState(s);
+                                const checked = selected.includes(s.id);
+                                return (
+                                  <label
+                                    key={s.id}
+                                    className={`flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 ${
+                                      checked ? "bg-red-50" : ""
+                                    } ${full ? "opacity-45" : ""}`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      disabled={full}
+                                      onChange={() => pickLeaf(slot.shifts, s)}
+                                      className="h-4 w-4 flex-none accent-red-700"
+                                    />
+                                    <span className="flex-1 text-[14px] text-gray-800">{s.post_name}</span>
+                                    <span className="text-xs text-gray-400">
+                                      {full ? "已满" : `剩 1`}
+                                    </span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
-
-                        {sOpen && (
-                          <div className="pb-2 pl-12 pr-4">
-                            {slot.shifts.map((s) => {
-                              const { full, remaining } = shiftState(s);
-                              const checked = selected.includes(s.id);
-                              return (
-                                <label
-                                  key={s.id}
-                                  className={`flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 ${
-                                    checked ? "bg-red-50" : ""
-                                  } ${full ? "opacity-45" : ""}`}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    disabled={full}
-                                    onChange={() => pickLeaf(slot.shifts, s)}
-                                    className="h-4 w-4 flex-none accent-red-700"
-                                  />
-                                  <span className="flex-1 text-[14px] text-gray-800">{s.post_name}</span>
-                                  <span className="text-xs text-gray-400">
-                                    {full ? "已满" : `剩 ${remaining}`}
-                                  </span>
-                                </label>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
 
         <p className="mt-2 px-1 text-xs text-gray-400">
-          每个时段选一个岗位；勾选日期/时段会自动选第一个有空位的岗位，想换岗直接点别的岗位。
-          同一天可报多个时段。
+          勾选日期展开时段，勾选时段展开岗位；岗位才是最终选择，每个时段只能选一个岗位。
+          取消勾选日期/时段会同时清空其下选择。
         </p>
       </section>
 
@@ -351,6 +296,49 @@ export default function SignupFlow({ activity: initial }: { activity: Activity }
         </div>
       </div>
     </main>
+  );
+}
+
+/* 可展开行：checkbox=展开开关，点行其余部分同义。
+   checkbox 的 onChange 已处理开关，行点击里跳过 checkbox 自身避免双触发。 */
+function Row({
+  checked, onCheck, onRowClick, main, badge, tail, size = "base", indent = false,
+}: {
+  checked: boolean;
+  onCheck: (on: boolean) => void;
+  onRowClick: () => void;
+  main: string;
+  badge?: string;
+  tail: string;
+  size?: "base" | "sm";
+  indent?: boolean;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  return (
+    <div
+      ref={ref}
+      onClick={(e) => {
+        if ((e.target as HTMLElement).tagName === "INPUT") return;
+        onRowClick();
+      }}
+      className={`flex items-center gap-3 px-4 py-3 ${indent ? "pl-8" : ""} cursor-pointer select-none`}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onCheck(e.target.checked)}
+        className={`flex-none accent-red-700 ${size === "sm" ? "h-4 w-4" : "h-[18px] w-[18px]"}`}
+      />
+      <span className={`flex-1 ${size === "sm" ? "text-[14px] font-medium text-gray-800" : "text-[15px] font-semibold text-gray-900"}`}>
+        {main}
+        {badge && (
+          <span className={`ml-2 text-xs font-normal ${badge.startsWith("已选") ? "text-red-600" : "text-gray-400"}`}>
+            {badge}
+          </span>
+        )}
+      </span>
+      <span className="text-[13px] text-gray-400">{tail}</span>
+    </div>
   );
 }
 
