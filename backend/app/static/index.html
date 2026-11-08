@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>志愿活动报名 · 红十字会学生分会</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: #fef2f2; color: #1f2937; padding: 16px; max-width: 480px; margin: 0 auto; }
+  h1 { font-size: 20px; color: #b91c1c; margin: 8px 0 4px; }
+  .sub { color: #6b7280; font-size: 13px; margin-bottom: 16px; }
+  .card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 14px;
+          box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .card h2 { font-size: 16px; margin-bottom: 2px; }
+  .meta { color: #6b7280; font-size: 13px; margin-bottom: 10px; }
+  .shift { display: flex; align-items: flex-start; gap: 10px; padding: 10px;
+           border: 1px solid #e5e7eb; border-radius: 10px; margin-bottom: 8px; }
+  .shift.checked { border-color: #b91c1c; background: #fef2f2; }
+  .shift input { margin-top: 4px; width: 18px; height: 18px; flex: none; }
+  .post { font-size: 15px; font-weight: 600; }
+  .info { font-size: 13px; color: #6b7280; }
+  .full { color: #9ca3af; }
+  label.f { display: block; font-size: 13px; color: #374151; margin: 10px 0 4px; }
+  input.f { width: 100%; padding: 11px 12px; font-size: 16px; border: 1px solid #d1d5db;
+            border-radius: 8px; background: #fff; }
+  button { width: 100%; padding: 14px; font-size: 17px; font-weight: 600; border: 0;
+           border-radius: 10px; background: #b91c1c; color: #fff; margin-top: 14px; }
+  button:disabled { background: #d1d5db; }
+  .msg { padding: 12px; border-radius: 10px; font-size: 14px; margin-bottom: 12px; display: none; }
+  .msg.err { display: block; background: #fee2e2; color: #991b1b; }
+  .msg.ok { display: block; background: #dcfce7; color: #166534; }
+  .empty { text-align: center; color: #6b7280; padding: 40px 0; }
+</style>
+</head>
+<body>
+<div id="app"><div class="empty">加载中…</div></div>
+
+<script>
+var activity = null;
+
+function esc(s){ return String(s == null ? "" : s).replace(/[&<>"]/g, function(c){
+  return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
+
+function fmt(t){ var d = new Date(t);
+  function p(n){ return (n<10?"0":"")+n; }
+  return (d.getMonth()+1)+"月"+d.getDate()+"日 "+p(d.getHours())+":"+p(d.getMinutes()); }
+
+function load(){
+  fetch("/api/activities").then(function(r){ return r.json(); }).then(function(list){
+    if (!list.length){ document.getElementById("app").innerHTML =
+      '<div class="empty">当前没有开放报名的活动</div>'; return; }
+    activity = list[0]; // MVP：报名链接直达唯一活动
+    return fetch("/api/activities/" + activity.id).then(function(r){ return r.json(); });
+  }).then(function(a){
+    if (!a) return;
+    render(a);
+  }).catch(function(){
+    document.getElementById("app").innerHTML = '<div class="empty">加载失败，请刷新重试</div>';
+  });
+}
+
+function render(a){
+  var html = '<h1>' + esc(a.title) + '</h1>'
+    + '<div class="sub">红十字会学生分会 · 志愿服务报名</div>'
+    + '<div id="msg" class="msg"></div>'
+    + '<div class="card"><h2>选择场次（可多选）</h2>';
+  if (a.description) html += '<div class="meta">' + esc(a.description) + '</div>';
+  a.shifts.forEach(function(s){
+    var full = s.booked_count >= s.capacity;
+    var left = s.capacity - s.booked_count;
+    html += '<label class="shift" id="sh-' + s.id + '">'
+      + '<input type="checkbox" value="' + s.id + '"' + (full ? ' disabled' : '') + '>'
+      + '<span><span class="post ' + (full ? 'full' : '') + '">' + esc(s.post_name)
+      + (full ? '（已满）' : '（剩 ' + left + ' 个名额）') + '</span><br>'
+      + '<span class="info">' + fmt(s.start_time) + ' ~ ' + fmt(s.end_time)
+      + (s.location ? ' · ' + esc(s.location) : '') + '</span></span></label>';
+  });
+  html += '</div><div class="card">'
+    + '<label class="f">姓名</label><input class="f" id="name" placeholder="与学籍一致">'
+    + '<label class="f">学号</label><input class="f" id="student_id" inputmode="numeric" placeholder="完整学号">'
+    + '<label class="f">学院</label><input class="f" id="college" placeholder="如：材料学院">'
+    + '<label class="f">手机号</label><input class="f" id="phone" inputmode="numeric" maxlength="11" placeholder="11位手机号">'
+    + '<button id="btn" onclick="submit()">提交报名</button>'
+    + '<div class="sub" style="margin-top:10px">提交后请留意页面提示；如有疑问请联系社团负责人。</div>'
+    + '</div>';
+  document.getElementById("app").innerHTML = html;
+  document.querySelectorAll('.shift input').forEach(function(el){
+    el.addEventListener('change', function(){
+      el.closest('.shift').classList.toggle('checked', el.checked);
+    });
+  });
+}
+
+function showMsg(text, ok){
+  var m = document.getElementById("msg");
+  m.className = "msg " + (ok ? "ok" : "err");
+  m.textContent = text;
+  if (ok) window.scrollTo(0, 0);
+}
+
+function submit(){
+  var ids = [];
+  document.querySelectorAll('.shift input:checked').forEach(function(el){ ids.push(+el.value); });
+  if (!ids.length){ showMsg("请至少选择一个场次"); return; }
+  var body = {
+    name: document.getElementById("name").value.trim(),
+    student_id: document.getElementById("student_id").value.trim(),
+    college: document.getElementById("college").value.trim(),
+    phone: document.getElementById("phone").value.trim(),
+    shift_ids: ids
+  };
+  if (body.name.length < 2 || !body.student_id || !body.college || !/^1\d{10}$/.test(body.phone)){
+    showMsg("请完整填写姓名、学号、学院和 11 位手机号"); return;
+  }
+  var btn = document.getElementById("btn");
+  btn.disabled = true; btn.textContent = "提交中…";
+  fetch("/api/activities/" + activity.id + "/signups", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body)
+  }).then(function(r){ return r.json().then(function(j){ return {status: r.status, body: j}; }); })
+  .then(function(res){
+    if (res.status === 200){
+      document.getElementById("app").innerHTML =
+        '<div class="card" style="text-align:center;padding:28px 16px">'
+        + '<h1 style="font-size:22px">报名成功 ✓</h1>'
+        + '<div class="meta" style="margin-top:8px">' + esc(body.name) + '，你已成功报名 '
+        + ids.length + ' 个场次。<br>活动前请在 QQ 群留意集合通知。</div></div>';
+    } else {
+      showMsg(res.body.detail || "提交失败，请重试");
+      btn.disabled = false; btn.textContent = "提交报名";
+      load(); // 刷新名额
+    }
+  }).catch(function(){
+    showMsg("网络异常，请检查后重试");
+    btn.disabled = false; btn.textContent = "提交报名";
+  });
+}
+
+load();
+</script>
+</body>
+</html>

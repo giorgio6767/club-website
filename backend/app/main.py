@@ -1,6 +1,8 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from .database import Base, engine
@@ -29,12 +31,13 @@ def create_app() -> FastAPI:
             conn.execute(text("SELECT 1"))
         return {"status": "ok"}
 
+    # 临时报名页（11-08 局域网真机验收用）。11-09 上线 Next.js 后由 nginx 接管 /，
+    # 此挂载自动失效，不用删。
+    static_dir = Path(__file__).parent / "static"
+    if (static_dir / "index.html").exists():
+        app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
+
     return app
-
-
-def init_db() -> None:
-    """开发期建表。M1 引入 Alembic 后此函数只留给测试环境。"""
-    Base.metadata.create_all(engine)
 
 
 app = create_app()
